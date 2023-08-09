@@ -1,7 +1,6 @@
 # -*- coding:UTF-8 -*-
 from src.trainer import Trainer
 from argparse import ArgumentParser
-import deepspeed
 import os
 
 
@@ -15,8 +14,10 @@ if __name__ == "__main__":
     parser.add_argument("--local_rank", type=int, default=-1)
     parser.add_argument("--max_num_tokens", type=int, default=128)
     parser.add_argument("--max_pieces_per_token", type=int, default=5)
-    parser.add_argument("--valid_batch_size", type=int, required=True)
+    parser.add_argument("--train_batch_size", type=int, required=True)
+    parser.add_argument("--valid_batch_size", type=int, default=8)
     parser.add_argument("--num_epochs", type=int, required=True)
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1, required=False)
     parser.add_argument("--tp_prob", type=float, default=1)
     parser.add_argument("--tn_prob", type=float, default=1)
     parser.add_argument("--additional_confidence", type=float, default=0.0)
@@ -49,7 +50,6 @@ if __name__ == "__main__":
     parser.add_argument("--eval_interval", type=int, default=50)
     parser.add_argument("--save_interval", type=int, default=None)
     parser.add_argument("--tensorboard_dir", type=str, default=None, help="path to save tensorboard args")
-    parser = deepspeed.add_config_arguments(parser)
 
     args = parser.parse_args()
     main(args)

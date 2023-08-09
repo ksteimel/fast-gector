@@ -1,10 +1,7 @@
 # -*- coding:UTF-8 -*-
 import torch
-from deepspeed.utils.groups import _get_data_parallel_group
 from transformers import AutoTokenizer
 from transformers.optimization import get_linear_schedule_with_warmup
-from deepspeed.runtime.zero.stage_1_and_2 import DeepSpeedZeroOptimizer
-from deepspeed.runtime.fp16.fused_optimizer import FP16_Optimizer
 from utils.mismatched_utils import *
 from utils.data_utils import init_dataloader
 from src.dataset import Seq2EditVocab
@@ -15,26 +12,21 @@ from sklearn.metrics import accuracy_score
 from random import seed
 import os
 import json
-import deepspeed
-from deepspeed.utils.logging import log_dist
-from deepspeed import comm
 from torch.utils.tensorboard import SummaryWriter
+from loguru import logger
 
 class Trainer:
     def __init__(self, args):
-        
+        print("Init trainer")
         self.fix_seed()
-        deepspeed.init_distributed()
         self.device = self.setup_device(args.local_rank)
-        self.n_gpus = comm.get_world_size()
+        self.n_gpus = torch.cuda.device_count()
         self.log_interval = args.log_interval
         self.eval_interval = args.eval_interval
-        
+        self.train_batch_size = args.train_batch_size
+        self.gradient_accumulation_steps = args.gradient_accumulation_steps
         # to ensure each process has a summary writer
         self.summary_writer = None
-        if comm.get_rank() == 0:
-            self.summary_writer = SummaryWriter(log_dir=args.tensorboard_dir) if args.tensorboard_dir is not None else None 
-        self.import_ds_config_hyper_params(args.deepspeed_config)
         self.num_epochs = args.num_epochs
         self.valid_batch_size = args.valid_batch_size # 
         self.do_eval = args.do_eval
@@ -100,7 +92,7 @@ class Trainer:
             skip_correct=self.skip_correct,
             tp_prob=self.tp_prob,
             tn_prob=self.tn_prob)
-        log_dist(f"# training dataset: {len(self.train_loader.dataset)}", ranks=[0])
+        logger(f"# training dataset: {len(self.train_loader.dataset)}", ranks=[0])
         self.valid_loader = None
         if args.do_eval:
             self.valid_loader = init_dataloader(
@@ -120,16 +112,15 @@ class Trainer:
                 skip_correct=self.skip_correct,
                 tp_prob=self.tp_prob,
                 tn_prob=self.tn_prob)
-            log_dist(f"# validation dataset: {len(self.valid_loader.dataset)}", ranks=[0])
+            logger(f"# validation dataset: {len(self.valid_loader.dataset)}", ranks=[0])
 
         self.total_training_steps = int(len(self.train_loader) // self.gradient_accumulation_steps * self.num_epochs)
         # if save interval is not set by args, save at the end of each epoch
         self.save_interval = args.save_interval if args.save_interval is not None else len(self.train_loader) // self.gradient_accumulation_steps
-        log_dist(f"set total training steps to {self.total_training_steps}", ranks=[0])
+        logger(f"set total training steps to {self.total_training_steps}", ranks=[0])
         self.model, self.optimizer, self.lr_scheduler = \
             self.setup_model_optimizer_and_scheduler(
                                                     model=model, 
-                                                    config=args.deepspeed_config, 
                                                     total_training_steps=self.total_training_steps,
                                                     warmup=args.warmup)
         
@@ -152,37 +143,31 @@ class Trainer:
                 device = torch.device("cuda")
         else:
             device = torch.device("cpu")
-        log_dist(f"setup device: {device}", ranks=[comm.get_world_rank_from_launcher()])
         return device
 
     def init_scheduler(self, optimizer, total_train_steps, warmup_ratio):
         torch_optimizer = optimizer
-        if isinstance(optimizer, (DeepSpeedZeroOptimizer, FP16_Optimizer)):
-            torch_optimizer = optimizer.optimizer
         lr_scheduler = get_linear_schedule_with_warmup(
             optimizer=torch_optimizer,
             num_warmup_steps=int(total_train_steps * warmup_ratio),
             num_training_steps=total_train_steps,
         )
-        log_dist(f"setup lr_scheduler {lr_scheduler}", ranks=[0])
+        logger(f"setup lr_scheduler {lr_scheduler}", ranks=[0])
         return lr_scheduler
 
-    def setup_model_optimizer_and_scheduler(self, model, config, total_training_steps: int, warmup: float):
-        model, optimizer, _, _ = deepspeed.initialize(model=model,
-                                                        model_parameters=model.parameters(),
-                                                        config=config)
+    def setup_model_optimizer_and_scheduler(self, model, total_training_steps: int, warmup: float):
         lr_scheduler = self.init_scheduler(optimizer=optimizer,
                                         total_train_steps=total_training_steps,
                                         warmup_ratio=warmup)
         # load ckpt and reset lr
         if self.model_dir and self.ckpt_id:
             model.load_checkpoint(self.model_dir, self.ckpt_id)
-            log_dist(f"load model from {self.model_dir}", ranks=[0])
+            logger(f"load model from {self.model_dir}", ranks=[0])
             for param_group in optimizer.param_groups:
                 param_group['lr'] = self.lr
 
         else:
-            log_dist("no model checkpoint found, train from beginning...", ranks=[0])
+            logger("no model checkpoint found, train from beginning...", ranks=[0])
         return model, optimizer, lr_scheduler
 
     def train(self):
@@ -287,7 +272,7 @@ class Trainer:
                         metrics["best_valid_loss"] = self.best_loss
                         metrics["best_valid_accuracy"] = self.best_accuracy
                         self._save_metric(global_train_step, metrics)
-                        log_dist(f"evaluation results: {metrics}", ranks=[0])
+                        logger(f"evaluation results: {metrics}", ranks=[0])
                 if (global_train_step + 1) % self.save_interval == 0:
                     self._save_ckpt(global_train_step)
                 step += 1

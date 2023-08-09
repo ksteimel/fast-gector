@@ -6,7 +6,6 @@ from src.dataset import Seq2EditVocab, MyCollate
 from utils.helpers import INCORRECT_LABEL, KEEP_LABEL, PAD_LABEL, START_TOKEN, UNK_LABEL, get_target_sent_by_edits
 from src.model import GECToRModel
 from random import seed
-import deepspeed
 import os
 
 class Predictor:
