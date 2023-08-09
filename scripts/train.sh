@@ -1,8 +1,9 @@
 #!/bin/bash
+set -x
 detect_vocab_path="./data/vocabulary/d_tags.txt"
 correct_vocab_path="./data/vocabulary/labels.txt"
-train_path="train.edits"
-valid_path="dev.edits"
+train_path="gec_private_train_data/made_up.edits"
+valid_path="gec_private_train_data/made_up.edits"
 config_path="configs/ds_config_zero1_fp16.json"
 timestamp=`date "+%Y%0m%0d_%T"`
 save_dir="ckpts/ckpt_$timestamp"
@@ -12,12 +13,11 @@ mkdir -p $save_dir
 cp $0 $save_dir
 cp $config_path $save_dir
 
-
-run_cmd="deepspeed --hostfile configs/hostfile --master_port 49828 train.py \
-    --deepspeed \
-    --deepspeed_config $config_path \
+python train.py \
     --num_epochs 10 \
     --max_num_tokens 128 \
+    --train_batch_size 16\
+    --gradient_accumulation_steps 4\
     --valid_batch_size 256 \
     --cold_step_count 0 \
     --warmup 0.1 \
@@ -39,9 +39,6 @@ run_cmd="deepspeed --hostfile configs/hostfile --master_port 49828 train.py \
     --log_interval 1 \
     --eval_interval 50 \
     --save_interval 50 \
-    --pretrained_transformer_path $pretrained_transformer_path \
-    --tensorboard_dir $tensorboard_dir \
-    2>&1 | tee ${save_dir}/train-${timestamp}.log"
+    --pretrained_transformer_path $pretrained_transformer_path\
+    --tensorboard_dir $tensorboard_dir 2>&1
 
-echo ${run_cmd}
-eval ${run_cmd}
