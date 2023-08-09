@@ -4,9 +4,7 @@ channels:
   - defaults
 dependencies:
   - blas=1.0
-  - ca-certificates=2022.2.1
   - certifi=2021.10.8
-  - cudatoolkit>=11
   - joblib=1.1.1
   - ld_impl_linux-64=2.35.1
   - mkl=2021.4.0
@@ -15,11 +13,9 @@ dependencies:
   - mkl_random=1.2.2
   - ncurses=6.3
   - numpy=1.21.2
-  - numpy-base=1.21.2
   - pip
   - python
   - pytorch
-  - pytorch-mutex
   - readline
   - scikit-learn
   - scipy=1.7.3
